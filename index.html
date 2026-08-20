@@ -243,17 +243,105 @@
           { passive: false }
         )
 
+        // ── Lotus_Cubie PNG sequence ──────────────────────────────────────────
+        const LOTUS_FPS = 24
+        const LOTUS_TOTAL = 44 // 20 frames "Comp 1" + 24 frames "Comp2"
+
+        const lotusFrameSrcs = []
+        for (let i = 0; i < 20; i++)
+          lotusFrameSrcs.push(
+            'Lotus_Cubie/' +
+              encodeURIComponent(`Comp 1_${String(i).padStart(5, '0')}.png`)
+          )
+        for (let i = 0; i < 24; i++)
+          lotusFrameSrcs.push(
+            'Lotus_Cubie/' +
+              encodeURIComponent(`Comp2_${String(i).padStart(5, '0')}.png`)
+          )
+
+        const lotusImages = new Array(LOTUS_TOTAL).fill(null)
+        let lotusLoaded = 0
+
+        lotusFrameSrcs.forEach((src, idx) => {
+          const img = new Image()
+          img.onload = () => {
+            lotusImages[idx] = img
+            lotusLoaded++
+            if (lotusLoaded === 1) {
+              // First frame ready: initialise texture size + upload
+              lotusTex.resize(img.naturalWidth, img.naturalHeight)
+              lotusTex.setSource(img)
+              lotusTex.upload()
+            }
+          }
+          img.src = src
+        })
+
+        // Single texture swapped every frame
+        const lotusTex = new pc.Texture(app.graphicsDevice, {
+          format: pc.PIXELFORMAT_RGBA8,
+          mipmaps: false,
+          minFilter: pc.FILTER_LINEAR,
+          magFilter: pc.FILTER_LINEAR
+        })
+
+        // Plane – images are 1024×1024 (1:1), positioned just inside the sphere
+        // Pivot at origin – rotating this makes the plane orbit inside the sphere
+        const lotusPivot = new pc.Entity('lotusPivot')
+        app.root.addChild(lotusPivot)
+
+        const lotusPlane = new pc.Entity('lotusPlane')
+        lotusPlane.addComponent('render', { type: 'plane' })
+        lotusPlane.setLocalEulerAngles(90, 0, 0) // stand upright
+        lotusPlane.setLocalPosition(0, 0, -480) // r≈480, sphere inner surface ≈r500
+        lotusPlane.setLocalScale(200, 1, 200) // 200×200 units, 1:1 aspect ratio
+
+        const lotusMat = new pc.StandardMaterial()
+        lotusMat.useLighting = false
+        lotusMat.emissive = new pc.Color(1, 1, 1)
+        lotusMat.emissiveMap = lotusTex
+        lotusMat.opacityMap = lotusTex
+        lotusMat.opacityMapChannel = 'a'
+        lotusMat.blendType = pc.BLEND_NORMAL
+        lotusMat.depthWrite = false
+        lotusMat.cull = pc.CULLFACE_NONE
+        lotusMat.update()
+
+        lotusPlane.render.meshInstances[0].material = lotusMat
+        lotusPivot.addChild(lotusPlane)
+
+        let lotusFrame = 0
+        let lotusTimer = 0
+        const LOTUS_FRAME_DUR = 1 / LOTUS_FPS
+
         // ── Main loop ─────────────────────────────────────────────────────────
         app.start()
         video.load()
 
         let uploadToggle = false
-        app.on('update', () => {
+        app.on('update', dt => {
           camera.setEulerAngles(pitch, yaw, 0)
 
           // Upload video frame every other tick to reduce GPU pressure
           uploadToggle = !uploadToggle
           if (uploadToggle) videoTexture.upload()
+
+          // Orbital rotation – 20°/s ≈ one full orbit every 18 seconds
+          lotusPivot.rotate(0, 20 * dt, 0)
+
+          // PNG sequence animation (starts once all frames are loaded)
+          if (lotusLoaded === LOTUS_TOTAL) {
+            lotusTimer += dt
+            if (lotusTimer >= LOTUS_FRAME_DUR) {
+              lotusTimer -= LOTUS_FRAME_DUR
+              lotusFrame = (lotusFrame + 1) % LOTUS_TOTAL
+              const img = lotusImages[lotusFrame]
+              if (img) {
+                lotusTex.setSource(img)
+                lotusTex.upload()
+              }
+            }
+          }
         })
       })()
     </script>

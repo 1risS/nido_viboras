@@ -1,0 +1,12 @@
+{
+  "name": "viboras-360",
+  "version": "1.0.0",
+  "description": "360° video viewer with PlayCanvas",
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}

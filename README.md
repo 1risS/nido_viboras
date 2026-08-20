@@ -30,12 +30,6 @@ npm run dev
 
 Abre `http://localhost:5173` en el navegador. Vite sirve los archivos estáticos y el video se resuelve directamente en el mismo origen.
 
-## Preview (build de producción simulado)
-
-```bash
-npm run preview
-```
-
 ## Estructura del proyecto
 
 ```

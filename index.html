@@ -87,16 +87,34 @@
       #hint.hidden {
         opacity: 0;
       }
+
+      #webm-overlay {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        z-index: 6;
+        pointer-events: none;
+        display: none;
+      }
     </style>
   </head>
   <body>
     <div id="overlay">
       <div class="spinner"></div>
       <span>Cargando video 360°…</span>
-      <p>moto.mp4</p>
     </div>
 
     <p id="hint">Arrastrá para mirar alrededor</p>
+
+    <video
+      id="webm-overlay"
+      src="test_transparente.webm"
+      muted
+      playsinline
+      preload="auto"
+    ></video>
 
     <canvas id="application-canvas"></canvas>
 
@@ -132,7 +150,7 @@
         })
 
         const video = document.createElement('video')
-        video.loop = true
+        video.loop = false
         video.muted = true
         video.autoplay = true
         video.playsInline = true
@@ -164,6 +182,45 @@
           // Auto-hide the drag hint after 4 s
           setTimeout(() => hint.classList.add('hidden'), 4000)
         })
+
+        // ── Vibración durante prueba_web.mp4 ─────────────────────────────────
+        // Cues en segundos – ajustá los tiempos según la duración real del video
+        const VIB_CUES = [
+          { t: 3, p: [200] },
+          { t: 8, p: [300, 150, 300] },
+          { t: 14, p: [500] },
+          { t: 20, p: [200, 100, 200, 100, 400] },
+          { t: 27, p: [800] }
+        ]
+        let vibIdx = 0
+        video.addEventListener('timeupdate', () => {
+          while (
+            vibIdx < VIB_CUES.length &&
+            video.currentTime >= VIB_CUES[vibIdx].t
+          ) {
+            if (navigator.vibrate) navigator.vibrate(VIB_CUES[vibIdx].p)
+            vibIdx++
+          }
+        })
+
+        // ── Secuencia: video termina → webm → cámaras del casco ──────────────
+        const webmOverlay = document.getElementById('webm-overlay')
+
+        video.addEventListener('ended', () => {
+          webmOverlay.style.display = 'block'
+          webmOverlay.play().catch(() => {})
+        })
+
+        webmOverlay.addEventListener('ended', () => {
+          webmOverlay.style.display = 'none'
+          activateHelmetCameras()
+        })
+
+        function activateHelmetCameras() {
+          // TODO: definir comportamiento
+          // ¿getUserMedia para cámara del dispositivo? ¿cargar otro video? ¿mostrar UI?
+          console.log('helmet cameras activated')
+        }
 
         // ── Camera (at origin, inside the sphere) ─────────────────────────────
         const camera = new pc.Entity('camera')

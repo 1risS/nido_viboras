@@ -98,12 +98,31 @@
         pointer-events: none;
         display: none;
       }
+
+      #btn-start {
+        display: none;
+        margin-top: 2rem;
+        padding: 0.8rem 2.5rem;
+        font-size: 1.1rem;
+        font-family: system-ui, sans-serif;
+        font-weight: 600;
+        background: #fff;
+        color: #000;
+        border: none;
+        border-radius: 2rem;
+        cursor: pointer;
+        letter-spacing: 0.03em;
+      }
+      #btn-start:active {
+        opacity: 0.8;
+      }
     </style>
   </head>
   <body>
     <div id="overlay">
       <div class="spinner"></div>
       <span>Cargando video 360°…</span>
+      <button id="btn-start">▶ Comenzar</button>
     </div>
 
     <p id="hint">Arrastrá para mirar alrededor</p>
@@ -152,7 +171,7 @@
         const video = document.createElement('video')
         video.loop = false
         video.muted = true
-        video.autoplay = true
+        video.autoplay = false
         video.playsInline = true
         video.crossOrigin = 'anonymous'
         // Keep tiny & hidden so mobile browsers will load it
@@ -175,11 +194,22 @@
 
         video.addEventListener('canplaythrough', () => {
           videoTexture.setSource(video)
+          // Video listo – mostrar botón (no reproducir hasta gesto del usuario)
+          overlay.querySelector('.spinner').style.display = 'none'
+          document.getElementById('btn-start').style.display = 'block'
+        })
+
+        document.getElementById('btn-start').addEventListener('click', () => {
+          // Fullscreen requiere gesto del usuario – perfecto momento para pedirlo
+          const fsEl = document.documentElement
+          const fsReq =
+            fsEl.requestFullscreen ||
+            fsEl.webkitRequestFullscreen ||
+            fsEl.mozRequestFullScreen
+          if (fsReq) fsReq.call(fsEl).catch(() => {})
+
           video.play().catch(() => {})
-
           overlay.classList.add('hidden')
-
-          // Auto-hide the drag hint after 4 s
           setTimeout(() => hint.classList.add('hidden'), 4000)
         })
 

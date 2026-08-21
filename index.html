@@ -200,17 +200,32 @@
         })
 
         document.getElementById('btn-start').addEventListener('click', () => {
-          // Fullscreen requiere gesto del usuario – perfecto momento para pedirlo
-          const fsEl = document.documentElement
-          const fsReq =
-            fsEl.requestFullscreen ||
-            fsEl.webkitRequestFullscreen ||
-            fsEl.mozRequestFullScreen
-          if (fsReq) fsReq.call(fsEl).catch(() => {})
-
           video.play().catch(() => {})
           overlay.classList.add('hidden')
           setTimeout(() => hint.classList.add('hidden'), 4000)
+
+          if (navigator.xr) {
+            // Meta Quest / WebXR: entra en modo VR inmersivo
+            app.xr.start(camera.camera, pc.XRTYPE_VR, pc.XRSPACE_LOCAL, {
+              callback: err => {
+                if (err) {
+                  // XR falló – fullscreen clásico como fallback
+                  const fsEl = document.documentElement
+                  const fsReq =
+                    fsEl.requestFullscreen || fsEl.webkitRequestFullscreen
+                  if (fsReq) fsReq.call(fsEl).catch(() => {})
+                }
+              }
+            })
+          } else {
+            // Navegador de escritorio / móvil sin WebXR
+            const fsEl = document.documentElement
+            const fsReq =
+              fsEl.requestFullscreen ||
+              fsEl.webkitRequestFullscreen ||
+              fsEl.mozRequestFullScreen
+            if (fsReq) fsReq.call(fsEl).catch(() => {})
+          }
         })
 
         // ── Vibración durante prueba_web.mp4 ─────────────────────────────────
@@ -407,7 +422,10 @@
 
         let uploadToggle = false
         app.on('update', dt => {
-          camera.setEulerAngles(pitch, yaw, 0)
+          // En WebXR el headset controla la cámara; solo aplicar rotación manual fuera de XR
+          if (!app.xr.active) {
+            camera.setEulerAngles(pitch, yaw, 0)
+          }
 
           // Upload video frame every other tick to reduce GPU pressure
           uploadToggle = !uploadToggle

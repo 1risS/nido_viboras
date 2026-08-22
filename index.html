@@ -137,6 +137,9 @@
 
     <canvas id="application-canvas"></canvas>
 
+    <!-- Hydra synth -->
+    <script src="https://unpkg.com/hydra-synth/dist/hydra-synth.js"></script>
+
     <!-- PlayCanvas UMD engine -->
     <script src="https://cdn.jsdelivr.net/npm/playcanvas@2.21.4/build/playcanvas.js"></script>
 
@@ -172,6 +175,7 @@
         video.loop = false
         video.muted = true
         video.autoplay = false
+        video.preload = 'auto'
         video.playsInline = true
         video.crossOrigin = 'anonymous'
         // Keep tiny & hidden so mobile browsers will load it
@@ -190,13 +194,15 @@
 
         video.addEventListener('loadedmetadata', () => {
           videoTexture.resize(video.videoWidth, video.videoHeight)
-        })
-
-        video.addEventListener('canplaythrough', () => {
           videoTexture.setSource(video)
-          // Video listo – mostrar botón (no reproducir hasta gesto del usuario)
+          // Mostrar botón en cuanto hay metadata – no esperar buffer completo
           overlay.querySelector('.spinner').style.display = 'none'
           document.getElementById('btn-start').style.display = 'block'
+        })
+
+        video.addEventListener('error', () => {
+          overlay.querySelector('span').textContent = 'Error al cargar el video'
+          overlay.querySelector('.spinner').style.display = 'none'
         })
 
         document.getElementById('btn-start').addEventListener('click', () => {
@@ -252,6 +258,7 @@
         const webmOverlay = document.getElementById('webm-overlay')
 
         video.addEventListener('ended', () => {
+          sphere.enabled = false // ocultar video sphere → Hydra queda visible
           webmOverlay.style.display = 'block'
           webmOverlay.play().catch(() => {})
         })
@@ -279,7 +286,7 @@
         // ── 360 sphere ────────────────────────────────────────────────────────
         const sphere = new pc.Entity('sphere360')
         sphere.addComponent('render', { type: 'sphere' })
-        sphere.setLocalScale(1000, 1000, 1000)
+        sphere.setLocalScale(990, 990, 990) // slightly smaller than Hydra sphere
 
         const mat = new pc.StandardMaterial()
         mat.emissiveMap = videoTexture
@@ -293,6 +300,44 @@
 
         sphere.render.meshInstances[0].material = mat
         app.root.addChild(sphere)
+
+        // ── Hydra sphere (background, always visible) ────────────────────
+        let hydraTexture = null
+        try {
+          const hydraCanvas = document.createElement('canvas')
+          hydraCanvas.width = 512
+          hydraCanvas.height = 512
+          hydraCanvas.style.cssText = 'display:none;position:absolute'
+          document.body.appendChild(hydraCanvas)
+          new Hydra({ canvas: hydraCanvas, autoLoop: true, detectAudio: false })
+          osc().out()
+
+          hydraTexture = new pc.Texture(app.graphicsDevice, {
+            format: pc.PIXELFORMAT_RGB8,
+            mipmaps: false,
+            minFilter: pc.FILTER_LINEAR,
+            magFilter: pc.FILTER_LINEAR,
+            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressV: pc.ADDRESS_CLAMP_TO_EDGE
+          })
+          hydraTexture.setSource(hydraCanvas)
+
+          const hydraSphere = new pc.Entity('hydraSphere')
+          hydraSphere.addComponent('render', { type: 'sphere' })
+          hydraSphere.setLocalScale(1000, 1000, 1000)
+
+          const hydraMat = new pc.StandardMaterial()
+          hydraMat.emissiveMap = hydraTexture
+          hydraMat.emissive = pc.Color.WHITE
+          hydraMat.useLighting = false
+          hydraMat.cull = pc.CULLFACE_FRONT
+          hydraMat.update()
+
+          hydraSphere.render.meshInstances[0].material = hydraMat
+          app.root.addChild(hydraSphere)
+        } catch (e) {
+          console.warn('Hydra no disponible:', e)
+        }
 
         // ── Look-around controls ──────────────────────────────────────────────
         let yaw = 0
@@ -345,77 +390,6 @@
           { passive: false }
         )
 
-        // ── Lotus_Cubie PNG sequence ──────────────────────────────────────────
-        const LOTUS_FPS = 24
-        const LOTUS_TOTAL = 44 // 20 frames "Comp 1" + 24 frames "Comp2"
-
-        const lotusFrameSrcs = []
-        for (let i = 0; i < 20; i++)
-          lotusFrameSrcs.push(
-            'Lotus_Cubie/' +
-              encodeURIComponent(`Comp 1_${String(i).padStart(5, '0')}.png`)
-          )
-        for (let i = 0; i < 24; i++)
-          lotusFrameSrcs.push(
-            'Lotus_Cubie/' +
-              encodeURIComponent(`Comp2_${String(i).padStart(5, '0')}.png`)
-          )
-
-        const lotusImages = new Array(LOTUS_TOTAL).fill(null)
-        let lotusLoaded = 0
-
-        lotusFrameSrcs.forEach((src, idx) => {
-          const img = new Image()
-          img.onload = () => {
-            lotusImages[idx] = img
-            lotusLoaded++
-            if (lotusLoaded === 1) {
-              // First frame ready: initialise texture size + upload
-              lotusTex.resize(img.naturalWidth, img.naturalHeight)
-              lotusTex.setSource(img)
-              lotusTex.upload()
-            }
-          }
-          img.src = src
-        })
-
-        // Single texture swapped every frame
-        const lotusTex = new pc.Texture(app.graphicsDevice, {
-          format: pc.PIXELFORMAT_RGBA8,
-          mipmaps: false,
-          minFilter: pc.FILTER_LINEAR,
-          magFilter: pc.FILTER_LINEAR
-        })
-
-        // Plane – images are 1024×1024 (1:1), positioned just inside the sphere
-        // Pivot at origin – rotating this makes the plane orbit inside the sphere
-        const lotusPivot = new pc.Entity('lotusPivot')
-        app.root.addChild(lotusPivot)
-
-        const lotusPlane = new pc.Entity('lotusPlane')
-        lotusPlane.addComponent('render', { type: 'plane' })
-        lotusPlane.setLocalEulerAngles(90, 0, 0) // stand upright
-        lotusPlane.setLocalPosition(0, 0, -480) // r≈480, sphere inner surface ≈r500
-        lotusPlane.setLocalScale(200, 1, 200) // 200×200 units, 1:1 aspect ratio
-
-        const lotusMat = new pc.StandardMaterial()
-        lotusMat.useLighting = false
-        lotusMat.emissive = new pc.Color(1, 1, 1)
-        lotusMat.emissiveMap = lotusTex
-        lotusMat.opacityMap = lotusTex
-        lotusMat.opacityMapChannel = 'a'
-        lotusMat.blendType = pc.BLEND_NORMAL
-        lotusMat.depthWrite = false
-        lotusMat.cull = pc.CULLFACE_NONE
-        lotusMat.update()
-
-        lotusPlane.render.meshInstances[0].material = lotusMat
-        lotusPivot.addChild(lotusPlane)
-
-        let lotusFrame = 0
-        let lotusTimer = 0
-        const LOTUS_FRAME_DUR = 1 / LOTUS_FPS
-
         // ── Main loop ─────────────────────────────────────────────────────────
         app.start()
         video.load()
@@ -427,25 +401,11 @@
             camera.setEulerAngles(pitch, yaw, 0)
           }
 
-          // Upload video frame every other tick to reduce GPU pressure
+          // Upload textures every other tick
           uploadToggle = !uploadToggle
-          if (uploadToggle) videoTexture.upload()
-
-          // Orbital rotation – 20°/s ≈ one full orbit every 18 seconds
-          lotusPivot.rotate(0, 20 * dt, 0)
-
-          // PNG sequence animation (starts once all frames are loaded)
-          if (lotusLoaded === LOTUS_TOTAL) {
-            lotusTimer += dt
-            if (lotusTimer >= LOTUS_FRAME_DUR) {
-              lotusTimer -= LOTUS_FRAME_DUR
-              lotusFrame = (lotusFrame + 1) % LOTUS_TOTAL
-              const img = lotusImages[lotusFrame]
-              if (img) {
-                lotusTex.setSource(img)
-                lotusTex.upload()
-              }
-            }
+          if (uploadToggle) {
+            if (sphere.enabled) videoTexture.upload()
+            if (hydraTexture) hydraTexture.upload()
           }
         })
       })()

@@ -116,6 +116,7 @@
       #btn-start:active {
         opacity: 0.8;
       }
+
     </style>
   </head>
   <body>
@@ -154,7 +155,11 @@
         // ── PlayCanvas app ────────────────────────────────────────────────────
         const app = new pc.Application(canvas, {
           mouse: new pc.Mouse(document.body),
-          touch: new pc.TouchDevice(document.body)
+          touch: new pc.TouchDevice(document.body),
+
+          graphicsDeviceOptions: {
+            alpha: true
+          }
         })
 
         app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW)
@@ -189,7 +194,8 @@
           top: '0',
           pointerEvents: 'none'
         })
-        video.src = 'https://static.flok.cc/prueba_web.mp4'
+        //video.src = 'https://static.flok.cc/prueba_web.mp4'
+        video.src = './BAILE_1.mp4'
         document.body.appendChild(video)
 
         video.addEventListener('loadedmetadata', () => {
@@ -210,21 +216,7 @@
           overlay.classList.add('hidden')
           setTimeout(() => hint.classList.add('hidden'), 4000)
 
-          if (navigator.xr) {
-            // Meta Quest / WebXR: entra en modo VR inmersivo
-            app.xr.start(camera.camera, pc.XRTYPE_VR, pc.XRSPACE_LOCAL, {
-              callback: err => {
-                if (err) {
-                  // XR falló – fullscreen clásico como fallback
-                  const fsEl = document.documentElement
-                  const fsReq =
-                    fsEl.requestFullscreen || fsEl.webkitRequestFullscreen
-                  if (fsReq) fsReq.call(fsEl).catch(() => {})
-                }
-              }
-            })
-          } else {
-            // Navegador de escritorio / móvil sin WebXR
+          const fallbackFullscreen = () => {
             const fsEl = document.documentElement
             const fsReq =
               fsEl.requestFullscreen ||
@@ -232,11 +224,27 @@
               fsEl.mozRequestFullScreen
             if (fsReq) fsReq.call(fsEl).catch(() => {})
           }
+
+          if (navigator.xr && app.xr.isAvailable(pc.XRTYPE_AR)) {
+            app.xr.start(camera.camera, pc.XRTYPE_AR, pc.XRSPACE_LOCALFLOOR, {
+              callback: err => {
+                if (err) fallbackFullscreen()
+              }
+            })
+          } else if (navigator.xr && app.xr.isAvailable(pc.XRTYPE_VR)) {
+            app.xr.start(camera.camera, pc.XRTYPE_VR, pc.XRSPACE_LOCAL, {
+              callback: err => {
+                if (err) fallbackFullscreen()
+              }
+            })
+          } else {
+            fallbackFullscreen()
+          }
         })
 
         // ── Vibración durante prueba_web.mp4 ─────────────────────────────────
         // Cues en segundos – ajustá los tiempos según la duración real del video
-        const VIB_CUES = [
+        /* const VIB_CUES = [
           { t: 3, p: [200] },
           { t: 8, p: [300, 150, 300] },
           { t: 14, p: [500] },
@@ -251,6 +259,39 @@
           ) {
             if (navigator.vibrate) navigator.vibrate(VIB_CUES[vibIdx].p)
             vibIdx++
+          }
+        }) */
+
+        // // ── Haptics ────────────────────────────────────────────────────────────
+        function vibrateXR(intensity = 1.0, duration = 300) {
+          // Fallback para dispositivos que soporten la API de vibración
+          if (navigator.vibrate) {
+            navigator.vibrate(duration)
+          }
+
+          // Haptics de los controles XR
+          const inputSources = app.xr.input.inputSources
+
+          for (let i = 0; i < inputSources.length; i++) {
+            const gamepad = inputSources[i].gamepad
+
+            if (
+              gamepad &&
+              gamepad.hapticActuators &&
+              gamepad.hapticActuators.length > 0
+            ) {
+              gamepad.hapticActuators[0].pulse(intensity, duration)
+            }
+          }
+        }
+
+        // Prueba a los 2 segundos del video
+        let vibrationTested = false
+
+        video.addEventListener('timeupdate', () => {
+          if (!vibrationTested && video.currentTime >= 2) {
+            vibrationTested = true
+            vibrateXR(1.0, 500)
           }
         })
 
@@ -268,10 +309,10 @@
           activateHelmetCameras()
         })
 
+        // ── Passthrough ────────────────────────────────────────────────────────
         function activateHelmetCameras() {
-          // TODO: definir comportamiento
-          // ¿getUserMedia para cámara del dispositivo? ¿cargar otro video? ¿mostrar UI?
-          console.log('helmet cameras activated')
+          if (hydraSphere) hydraSphere.enabled = false
+          camera.camera.clearColor = new pc.Color(0, 0, 0, 0)
         }
 
         // ── Camera (at origin, inside the sphere) ─────────────────────────────
@@ -287,6 +328,7 @@
         const sphere = new pc.Entity('sphere360')
         sphere.addComponent('render', { type: 'sphere' })
         sphere.setLocalScale(990, 990, 990) // slightly smaller than Hydra sphere
+        sphere.setEulerAngles(0, 180, 0) // orient the sphere so the video is right-side up
 
         const mat = new pc.StandardMaterial()
         mat.emissiveMap = videoTexture
@@ -303,6 +345,7 @@
 
         // ── Hydra sphere (background, always visible) ────────────────────
         let hydraTexture = null
+        let hydraSphere = null
         try {
           const hydraCanvas = document.createElement('canvas')
           hydraCanvas.width = 512
@@ -322,7 +365,7 @@
           })
           hydraTexture.setSource(hydraCanvas)
 
-          const hydraSphere = new pc.Entity('hydraSphere')
+          hydraSphere = new pc.Entity('hydraSphere')
           hydraSphere.addComponent('render', { type: 'sphere' })
           hydraSphere.setLocalScale(1000, 1000, 1000)
 

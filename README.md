@@ -10,8 +10,7 @@ Visor de video 360° interactivo construido con [PlayCanvas Engine](https://gith
 | [Vite 5](https://vitejs.dev/) | Servidor de desarrollo y preview |
 | [Socket.io 4.7](https://socket.io/) | Sincronización en tiempo real entre visores y el panel de control|
 | [Express](https://expressjs.com/) | Servidor del canal entre sync y los archivos estaticos (`control.html`)|
-| [ngrok](https://ngrok.com/) | exposición del servidor de sync para pruebas de conexión fuera de la red local|
-| [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) | exposición del sistema para conexión dentro de los visores, para pruebas fuera de la red local|
+| [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) | exposición del servidor de sync para pruebas de conexión fuera de la red local|
 
 El engine se carga desde CDN (`cdn.jsdelivr.net`), sin bundling del lado del cliente.
 
@@ -87,34 +86,15 @@ Experiencia sicnronizada – cuando hay varios visores conectados reproducionedo
 Se sirve como archivo estático desde el mismo servidor de sync (`express.static(__dirname)` en `server.js`), por lo que se conecta a Socket.IO por el mismo origen sin necesidad de indicar URL (`io()` sin argumentos). Se accede en:
 
 - Local: `http://localhost:3001/control.html`
-- Por el túnel de ngrok: `https://<la-url-que-crea-ngrok>/control.html`
+- Por el túnel de cloudflare: `https://<la-url-que-crea-.trycloudflare.com>/control.html`
 
 Muestra la lista de visores conectados con su estado (Listo / Esperando), un contador resumen, y los botones de Iniciar / Reiniciar sesión.
 
 ## Exposición pública (túnel)
 
-Durante pruebas con visores fuera de la red local, el servidor de sync (puerto `3001`) se expone a internet con un túnel. Con dos opciones:
+Durante pruebas con visores fuera de la red local, el servidor de sync (puerto `3001`) se expone a internet con un túnel.
 
-### ngrok
-
-```bash
-ngrok http 3001
-```
-
-Requiere cuenta gratuita y autenticación una única vez con `ngrok config add-authtoken <token>` (token disponible en el [dashboard de ngrok](https://dashboard.ngrok.com)).
-
-**Limitación importante del plan gratis:** ngrok intercepta el tráfico con una página de advertencia ("Visit Site") antes de dejarlo pasar, incluyendo las peticiones de Socket.IO — esto rompe la conexión con un error de CORS engañoso (`Access-Control-Allow-Origin` faltante), aunque el problema real es que la petición nunca llegó al servidor. Se resuelve agregando el header `ngrok-skip-browser-warning` en el cliente de Socket.IO:
-
-```js
-const socket = io(SYNC_SERVER_URL, {
-  timeout: 4000,
-  extraHeaders: {
-    'ngrok-skip-browser-warning': 'true'
-  }
-})
-```
-
-Otra limitación: la URL del túnel gratuito **cambia cada vez que se reinicia** (`ngrok http 3001` genera una nueva cada vez), por lo que hay que actualizar `SYNC_SERVER_URL` en `index.html` después de cada reinicio del túnel.
+Otra limitación: la URL del túnel gratuito **cambia cada vez que se reinicia** ( `& "C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel --url http://localhost:3001` genera una nueva cada vez), por lo que hay que actualizar `SYNC_SERVER_URL` en `index.html` después de cada reinicio del túnel.
 
 ### Cloudflare Tunnel
 

@@ -116,7 +116,6 @@
       #btn-start:active {
         opacity: 0.8;
       }
-
     </style>
   </head>
   <body>
@@ -140,9 +139,6 @@
 
     <!-- Socket.IO cliente (sync entre visores) -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
-    <!-- Hydra synth -->
-    <script src="https://unpkg.com/hydra-synth/dist/hydra-synth.js"></script>
 
     <!-- PlayCanvas UMD engine -->
     <script src="https://cdn.jsdelivr.net/npm/playcanvas@2.21.4/build/playcanvas.js"></script>
@@ -202,22 +198,25 @@
         document.body.appendChild(video)
 
         // ── Sync entre visores ────────────────────────────────────────────────
-        const SYNC_SERVER_URL = 'https://things-andrea-creation-essays.trycloudflare.com' // Cambiar la url segun el del servidosr
+        const SYNC_SERVER_URL =
+          'https://things-andrea-creation-essays.trycloudflare.com' // Cambiar la url segun el del servidosr
 
         let syncStartAt = null
-        const socket = io(SYNC_SERVER_URL, { 
+        const socket = io(SYNC_SERVER_URL, {
           timeout: 4000,
           extraHeaders: {
             'ngrok-skip-browser-warning': 'true'
           }
-         })
+        })
 
         socket.on('connect', () => {
           socket.emit('register', 'headset')
         })
 
         socket.on('connect_error', () => {
-          console.warn('No se pudo conectar al servidor de sync. Revisá SYNC_SERVER_URL.')
+          console.warn(
+            'No se pudo conectar al servidor de sync. Revisá SYNC_SERVER_URL.'
+          )
         })
 
         // reiniciar la sesion al estado inicial, para poder volver a reproducir el video
@@ -266,13 +265,10 @@
         })
 
         // Recién cuando el video empieza a reproducirse de verdad (ya sincronizado) se oculta el overlay de carga.
-        video.addEventListener(
-          'playing',
-          () => {
-            overlay.classList.add('hidden')
-            setTimeout(() => hint.classList.add('hidden'), 4000)
-          }
-        )
+        video.addEventListener('playing', () => {
+          overlay.classList.add('hidden')
+          setTimeout(() => hint.classList.add('hidden'), 4000)
+        })
 
         video.addEventListener('loadedmetadata', () => {
           videoTexture.resize(video.videoWidth, video.videoHeight)
@@ -291,7 +287,8 @@
           /* video.play().catch(() => {})
           overlay.classList.add('hidden')
           setTimeout(() => hint.classList.add('hidden'), 4000) */
-          overlay.querySelector('span').textContent = 'Listo — esperando inicio...'
+          overlay.querySelector('span').textContent =
+            'Listo — esperando inicio...'
           overlay.querySelector('.spinner').style.display = 'block'
           document.getElementById('btn-start').style.display = 'none'
 
@@ -353,7 +350,7 @@
         const webmOverlay = document.getElementById('webm-overlay')
 
         video.addEventListener('ended', () => {
-          sphere.enabled = false // ocultar video sphere → Hydra queda visible
+          sphere.enabled = false
           webmOverlay.style.display = 'block'
           webmOverlay.play().catch(() => {})
         })
@@ -365,7 +362,6 @@
 
         // ── Passthrough ────────────────────────────────────────────────────────
         function activateHelmetCameras() {
-          if (hydraSphere) hydraSphere.enabled = false
           camera.camera.clearColor = new pc.Color(0, 0, 0, 0)
         }
 
@@ -381,7 +377,7 @@
         // ── 360 sphere ────────────────────────────────────────────────────────
         const sphere = new pc.Entity('sphere360')
         sphere.addComponent('render', { type: 'sphere' })
-        sphere.setLocalScale(990, 990, 990) // slightly smaller than Hydra sphere
+        sphere.setLocalScale(1000, 1000, 1000)
         sphere.setEulerAngles(0, 180, 0) // orient the sphere so the video is right-side up
 
         const mat = new pc.StandardMaterial()
@@ -396,45 +392,6 @@
 
         sphere.render.meshInstances[0].material = mat
         app.root.addChild(sphere)
-
-        // ── Hydra sphere (background, always visible) ────────────────────
-        let hydraTexture = null
-        let hydraSphere = null
-        try {
-          const hydraCanvas = document.createElement('canvas')
-          hydraCanvas.width = 512
-          hydraCanvas.height = 512
-          hydraCanvas.style.cssText = 'display:none;position:absolute'
-          document.body.appendChild(hydraCanvas)
-          new Hydra({ canvas: hydraCanvas, autoLoop: true, detectAudio: false })
-          osc().out()
-
-          hydraTexture = new pc.Texture(app.graphicsDevice, {
-            format: pc.PIXELFORMAT_RGB8,
-            mipmaps: false,
-            minFilter: pc.FILTER_LINEAR,
-            magFilter: pc.FILTER_LINEAR,
-            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
-            addressV: pc.ADDRESS_CLAMP_TO_EDGE
-          })
-          hydraTexture.setSource(hydraCanvas)
-
-          hydraSphere = new pc.Entity('hydraSphere')
-          hydraSphere.addComponent('render', { type: 'sphere' })
-          hydraSphere.setLocalScale(1000, 1000, 1000)
-
-          const hydraMat = new pc.StandardMaterial()
-          hydraMat.emissiveMap = hydraTexture
-          hydraMat.emissive = pc.Color.WHITE
-          hydraMat.useLighting = false
-          hydraMat.cull = pc.CULLFACE_FRONT
-          hydraMat.update()
-
-          hydraSphere.render.meshInstances[0].material = hydraMat
-          app.root.addChild(hydraSphere)
-        } catch (e) {
-          console.warn('Hydra no disponible:', e)
-        }
 
         // ── Look-around controls ──────────────────────────────────────────────
         let yaw = 0
@@ -502,7 +459,6 @@
           uploadToggle = !uploadToggle
           if (uploadToggle) {
             if (sphere.enabled) videoTexture.upload()
-            if (hydraTexture) hydraTexture.upload()
           }
         })
       })()

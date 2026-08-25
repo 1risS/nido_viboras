@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=no"
     />
-    <title>Test Video 360° – Caballo</title>
+    <title>Video 360°</title>
     <style>
       *,
       *::before,
@@ -130,13 +130,16 @@
 
     <video
       id="webm-overlay"
-      src="test_transparente.webm"
+      src="/test_transparente.webm"
       muted
       playsinline
       preload="auto"
     ></video>
 
     <canvas id="application-canvas"></canvas>
+
+    <!-- Socket.IO cliente (sync entre visores) -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
     <!-- Hydra synth -->
     <script src="https://unpkg.com/hydra-synth/dist/hydra-synth.js"></script>
@@ -195,8 +198,81 @@
           pointerEvents: 'none'
         })
         //video.src = 'https://static.flok.cc/prueba_web.mp4'
-        video.src = './BAILE_1.mp4'
+        video.src = '/BAILE_1_optimizado.mp4'
         document.body.appendChild(video)
+
+        // ── Sync entre visores ────────────────────────────────────────────────
+        const SYNC_SERVER_URL = 'https://837f-181-94-223-249.ngrok-free.app' // Cambiar la url segun el del servidosr
+
+        let syncStartAt = null
+        const socket = io(SYNC_SERVER_URL, { 
+          timeout: 4000,
+          extraHeaders: {
+            'ngrok-skip-browser-warning': 'true'
+          }
+         })
+
+        socket.on('connect', () => {
+          socket.emit('register', 'headset')
+        })
+
+        socket.on('connect_error', () => {
+          console.warn('No se pudo conectar al servidor de sync. Revisá SYNC_SERVER_URL.')
+        })
+
+        // reiniciar la sesion al estado inicial, para poder volver a reproducir el video
+        function resetScene() {
+          video.pause()
+          video.currentTime = 0
+          webmOverlay.pause()
+          webmOverlay.currentTime = 0
+          webmOverlay.style.display = 'none'
+          sphere.enabled = true
+          if (hydraSphere) hydraSphere.enabled = true
+          camera.camera.clearColor = new pc.Color(0, 0, 0)
+          vibIdx = 0
+        }
+
+        // El servidor envía la hora de inicio del video
+        socket.on('go', ({ startAt }) => {
+          syncStartAt = startAt
+          const delay = Math.max(0, startAt - Date.now())
+          setTimeout(() => {
+            video.play().catch(() => {})
+          }, delay)
+        })
+
+        // Si un visor se conecta después de que ya arrancó, el servidor le manda la posición actual para ponerse al día
+        socket.on('catchup', ({ startAt }) => {
+          syncStartAt = startAt
+          const expected = Math.max(0, (Date.now() - startAt) / 1000)
+          video.currentTime = expected
+          video.play().catch(() => {})
+        })
+
+        // reiniciar la sesion a todos los visores
+        socket.on('reset-ack', () => {
+          resetScene()
+          syncStartAt = null
+        })
+
+        // Cada vez que el video avanza, se ajusta la posición si hay desincronización
+        video.addEventListener('timeupdate', () => {
+          if (syncStartAt === null || video.paused) return
+          const expected = (Date.now() - syncStartAt) / 1000
+          if (Math.abs(video.currentTime - expected) > 0.15) {
+            video.currentTime = expected
+          }
+        })
+
+        // Recién cuando el video empieza a reproducirse de verdad (ya sincronizado) se oculta el overlay de carga.
+        video.addEventListener(
+          'playing',
+          () => {
+            overlay.classList.add('hidden')
+            setTimeout(() => hint.classList.add('hidden'), 4000)
+          }
+        )
 
         video.addEventListener('loadedmetadata', () => {
           videoTexture.resize(video.videoWidth, video.videoHeight)
@@ -212,9 +288,12 @@
         })
 
         document.getElementById('btn-start').addEventListener('click', () => {
-          video.play().catch(() => {})
+          /* video.play().catch(() => {})
           overlay.classList.add('hidden')
-          setTimeout(() => hint.classList.add('hidden'), 4000)
+          setTimeout(() => hint.classList.add('hidden'), 4000) */
+          overlay.querySelector('span').textContent = 'Listo — esperando inicio...'
+          overlay.querySelector('.spinner').style.display = 'block'
+          document.getElementById('btn-start').style.display = 'none'
 
           const fallbackFullscreen = () => {
             const fsEl = document.documentElement
@@ -240,6 +319,14 @@
           } else {
             fallbackFullscreen()
           }
+
+          if (socket.connected) {
+            socket.emit('ready')
+          } else {
+            setTimeout(() => {
+              if (video.paused) video.play().catch(() => {})
+            }, 1000)
+          }
         })
 
         // ── Vibración durante prueba_web.mp4 ─────────────────────────────────
@@ -261,39 +348,6 @@
             vibIdx++
           }
         }) */
-
-        // // ── Haptics ────────────────────────────────────────────────────────────
-        function vibrateXR(intensity = 1.0, duration = 300) {
-          // Fallback para dispositivos que soporten la API de vibración
-          if (navigator.vibrate) {
-            navigator.vibrate(duration)
-          }
-
-          // Haptics de los controles XR
-          const inputSources = app.xr.input.inputSources
-
-          for (let i = 0; i < inputSources.length; i++) {
-            const gamepad = inputSources[i].gamepad
-
-            if (
-              gamepad &&
-              gamepad.hapticActuators &&
-              gamepad.hapticActuators.length > 0
-            ) {
-              gamepad.hapticActuators[0].pulse(intensity, duration)
-            }
-          }
-        }
-
-        // Prueba a los 2 segundos del video
-        let vibrationTested = false
-
-        video.addEventListener('timeupdate', () => {
-          if (!vibrationTested && video.currentTime >= 2) {
-            vibrationTested = true
-            vibrateXR(1.0, 500)
-          }
-        })
 
         // ── Secuencia: video termina → webm → cámaras del casco ──────────────
         const webmOverlay = document.getElementById('webm-overlay')

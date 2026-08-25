@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panel de control — Sync visores</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        min-height: 100vh;
+        background: #0b0b0f;
+        color: #f2f2f2;
+        font-family: system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem 1rem;
+      }
+
+      h1 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: #aaa;
+        margin-bottom: 2rem;
+        text-transform: uppercase;
+      }
+
+      #status-line {
+        font-size: 0.9rem;
+        color: #888;
+        margin-bottom: 1.5rem;
+      }
+
+      #status-line.connected { color: #4ade80; }
+      #status-line.disconnected { color: #f87171; }
+
+      #headset-list {
+        width: 100%;
+        max-width: 420px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        margin-bottom: 2.5rem;
+      }
+
+      .headset-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #16161d;
+        border: 1px solid #26262f;
+        border-radius: 0.6rem;
+        padding: 0.8rem 1rem;
+        font-size: 0.9rem;
+      }
+
+      .headset-row .id {
+        color: #999;
+        font-family: monospace;
+        font-size: 0.75rem;
+      }
+
+      .badge {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+      }
+      .badge.ready {
+        background: rgba(74, 222, 128, 0.15);
+        color: #4ade80;
+      }
+      .badge.waiting {
+        background: rgba(250, 204, 21, 0.15);
+        color: #facc15;
+      }
+
+      #empty-state {
+        color: #555;
+        font-size: 0.85rem;
+        text-align: center;
+        padding: 1.5rem 0;
+      }
+
+      #summary {
+        font-size: 0.85rem;
+        color: #999;
+        margin-bottom: 1.5rem;
+      }
+
+      button {
+        font-family: inherit;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: opacity 0.15s ease, transform 0.1s ease;
+      }
+      button:active { transform: scale(0.97); }
+      button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+      #btn-start {
+        background: #fff;
+        color: #000;
+        font-size: 1.1rem;
+        padding: 1rem 3rem;
+        margin-bottom: 1rem;
+      }
+
+      #btn-reset {
+        background: transparent;
+        color: #888;
+        border: 1px solid #333;
+        font-size: 0.8rem;
+        padding: 0.5rem 1.2rem;
+      }
+
+      #started-banner {
+        display: none;
+        margin-top: 1.5rem;
+        font-size: 0.85rem;
+        color: #4ade80;
+        text-align: center;
+      }
+      #started-banner.visible { display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>Panel de control · Sync de visores</h1>
+    <div id="status-line">conectando…</div>
+
+    <div id="summary">0 cascos conectados</div>
+
+    <div id="headset-list">
+      <div id="empty-state">Esperando a que se conecte algún casco…</div>
+    </div>
+
+    <button id="btn-start">Iniciar para todos</button>
+    <button id="btn-reset">Reiniciar sesión</button>
+
+    <div id="started-banner">Señal de inicio enviada a todos los cascos</div>
+
+    <!-- Se conecta al mismo servidor que sirve este archivo -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      ;(function () {
+        'use strict'
+
+        const statusLine = document.getElementById('status-line')
+        const summary = document.getElementById('summary')
+        const list = document.getElementById('headset-list')
+        const emptyState = document.getElementById('empty-state')
+        const btnStart = document.getElementById('btn-start')
+        const btnReset = document.getElementById('btn-reset')
+        const startedBanner = document.getElementById('started-banner')
+
+        // Como este archivo se sirve desde el propio servidor de sync, se
+        // conecta al mismo origen (no es necesario poner una URL).
+        const socket = io()
+
+        socket.on('connect', () => {
+          statusLine.textContent = 'conectado al servidor de sync'
+          statusLine.className = 'connected'
+          socket.emit('register', 'operator')
+        })
+
+        socket.on('disconnect', () => {
+          statusLine.textContent = 'desconectado — reconectando…'
+          statusLine.className = 'disconnected'
+        })
+
+        socket.on('headsets-state', ({ headsets, started }) => {
+          const readyCount = headsets.filter(h => h.ready).length
+          summary.textContent =
+            headsets.length + ' casco' + (headsets.length === 1 ? '' : 's') +
+            ' conectado' + (headsets.length === 1 ? '' : 's') +
+            ' · ' + readyCount + ' listo' + (readyCount === 1 ? '' : 's')
+
+          list.innerHTML = ''
+          if (headsets.length === 0) {
+            list.appendChild(emptyState)
+          } else {
+            headsets.forEach(h => {
+              const row = document.createElement('div')
+              row.className = 'headset-row'
+              row.innerHTML =
+                '<span class="id">' + h.id.slice(0, 8) + '</span>' +
+                '<span class="badge ' + (h.ready ? 'ready' : 'waiting') + '">' +
+                (h.ready ? 'Listo' : 'Esperando') + '</span>'
+              list.appendChild(row)
+            })
+          }
+
+          startedBanner.classList.toggle('visible', started)
+          btnStart.textContent = started ? 'Reenviar inicio' : 'Iniciar para todos'
+        })
+
+        btnStart.addEventListener('click', () => {
+          socket.emit('operator-start')
+        })
+
+        btnReset.addEventListener('click', () => {
+          socket.emit('operator-reset')
+        })
+      })()
+    </script>
+  </body>
+</html>

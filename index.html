@@ -117,6 +117,13 @@
         opacity: 0.8;
       }
     </style>
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker
+          .register('/sw.js')
+          .catch(err => console.warn('SW no registrado:', err))
+      }
+    </script>
   </head>
   <body>
     <div id="overlay">
@@ -193,8 +200,7 @@
           top: '0',
           pointerEvents: 'none'
         })
-        //video.src = 'https://static.flok.cc/prueba_web.mp4'
-        video.src = '/BAILE_1_optimizado.mp4'
+        video.src = '/test_4K.mp4'
         document.body.appendChild(video)
 
         // ── Sync entre visores ────────────────────────────────────────────────
@@ -227,9 +233,7 @@
           webmOverlay.currentTime = 0
           webmOverlay.style.display = 'none'
           sphere.enabled = true
-          if (hydraSphere) hydraSphere.enabled = true
           camera.camera.clearColor = new pc.Color(0, 0, 0)
-          vibIdx = 0
         }
 
         // El servidor envía la hora de inicio del video

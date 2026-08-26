@@ -193,9 +193,6 @@
           })
           osc(10, 0.1, 0.5)
             .mult(osc(10, 0.1, 0.5).rotate(Math.PI / 2))
-            .modulate(noise(0.25))
-            //.blend(src(o0), 0.8)
-            //.modulate(src(o0), 0.1)
             .out()
 
           hydraTexture = new pc.Texture(app.graphicsDevice, {

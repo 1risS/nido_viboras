@@ -201,6 +201,13 @@
         let hydraSphere = null
         let hydraObj = null
         try {
+          // Forzar preserveDrawingBuffer:true antes de que Hydra cree el contexto GL.
+          // Sin esto, en WebXR el compositor del Quest 2 recicla el framebuffer
+          // de Hydra antes de que nuestro drawImage lo lea → se ve blanco.
+          const _origGetCtx = hydraCanvas.getContext.bind(hydraCanvas)
+          hydraCanvas.getContext = (type, opts) =>
+            _origGetCtx(type, { ...(opts || {}), preserveDrawingBuffer: true })
+
           hydraObj = new Hydra({
             canvas: hydraCanvas,
             autoLoop: false,
@@ -472,7 +479,10 @@
         app.start()
         video.load()
 
-        // Hydra throttleado a ~30fps para reducir cambios de contexto GL en Quest 2
+        // Tiempo acumulado para Hydra: usa el dt de PlayCanvas en lugar de
+        // performance.now(), que en algunos firmwares de Quest 2 se comporta
+        // distinto dentro del loop WebXR y puede pasar valores incorrectos a tick().
+        let hydraAccumMs = 0
         let lastHydraTick = 0
         const HYDRA_FPS = 1000 / 30
 
@@ -482,9 +492,11 @@
             camera.setEulerAngles(pitch, yaw, 0)
           }
 
+          hydraAccumMs += dt * 1000 // dt es segundos → convertir a ms para Hydra
+
           const now = performance.now()
           if (hydraObj && now - lastHydraTick >= HYDRA_FPS) {
-            hydraObj.synth.tick(now)
+            hydraObj.synth.tick(hydraAccumMs)
             // Copiar GL canvas → 2D canvas (evita readback cross-context directo)
             hydraCtx2d.drawImage(hydraCanvas, 0, 0)
             if (hydraTexture) hydraTexture.upload()

@@ -139,9 +139,6 @@
     <!-- Socket.IO cliente (sync entre visores) -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
-    <!-- Hydra synth -->
-    <script src="https://unpkg.com/hydra-synth/dist/hydra-synth.js"></script>
-
     <!-- PlayCanvas UMD engine -->
     <script src="https://cdn.jsdelivr.net/npm/playcanvas@2.21.4/build/playcanvas.js"></script>
 
@@ -172,77 +169,79 @@
         })
         app.root.addChild(camera)
 
-        // ── Hydra sphere (background, siempre visible) ────────────────────────
-        const hydraCanvas = document.createElement('canvas')
-        hydraCanvas.width = 512
-        hydraCanvas.height = 512
-        // Posicionado fuera de pantalla pero NO display:none –
-        // display:none hace que Quest 2 suspenda el contexto GL en fullscreen
-        Object.assign(hydraCanvas.style, {
-          position: 'fixed',
-          top: '0',
-          left: '-2px',
-          width: '1px',
-          height: '1px',
-          opacity: '0',
-          pointerEvents: 'none',
-          zIndex: '-1'
-        })
-        document.body.appendChild(hydraCanvas)
+        // ── Fondo generativo: shader GLSL equivalente al patch Hydra ─────────
+        // Implementado dentro del contexto GL de PlayCanvas para evitar el conflicto
+        // de dos contextos WebGL simultáneos en WebXR / Quest 2.
+        //
+        // Replica de: osc(10,0.1,0.5).mult(osc(10,0.1,0.5).rotate(PI/2)).out()
+        //
+        // Para cambiar el visual, editar el fragmentShader debajo.
 
-        // Canvas 2D intermedio: evita el readback cross-context directo
-        // (WebGL canvas → 2D canvas → PlayCanvas texture es más estable en Quest 2)
-        const hydraSnap = document.createElement('canvas')
-        hydraSnap.width = 512
-        hydraSnap.height = 512
-        const hydraCtx2d = hydraSnap.getContext('2d')
+        const hydraVS = [
+          'attribute vec3 aPosition;',
+          'attribute vec2 aUv0;',
+          'uniform mat4 matrix_model;',
+          'uniform mat4 matrix_viewProjection;',
+          'varying vec2 vUv;',
+          'void main(void) {',
+          '  gl_Position = matrix_viewProjection * matrix_model * vec4(aPosition, 1.0);',
+          '  vUv = aUv0;',
+          '}'
+        ].join('\n')
 
-        let hydraTexture = null
+        const hydraFS = [
+          'precision mediump float;',
+          'varying vec2 vUv;',
+          'uniform float uTime;',
+          // Hydra osc(freq, sync, offset): onda seno RGB con offsets de fase
+          'vec4 hydraOsc(vec2 st, float freq, float sync, float offset) {',
+          '  float base = (st.x - 0.5) * freq + uTime * sync;',
+          '  return vec4(',
+          '    sin(base)         * 0.5 + offset,',
+          '    sin(base + 2.094) * 0.5 + offset,', // +2*PI/3
+          '    sin(base + 4.189) * 0.5 + offset,', // +4*PI/3
+          '    1.0);',
+          '}',
+          'void main(void) {',
+          // osc(10, 0.1, 0.5)
+          '  vec4 c1 = hydraOsc(vUv, 10.0, 0.1, 0.5);',
+          // osc(10, 0.1, 0.5).rotate(PI/2): rotar UV 90° alrededor del centro
+          // cos(PI/2)=0, sin(PI/2)=1 → rotSt = (-centered.y, centered.x) + 0.5
+          '  vec2 centered = vUv - 0.5;',
+          '  vec2 rotSt = vec2(-centered.y, centered.x) + 0.5;',
+          '  vec4 c2 = hydraOsc(rotSt, 10.0, 0.1, 0.5);',
+          // .mult()
+          '  gl_FragColor = c1 * c2;',
+          '}'
+        ].join('\n')
+
+        let hydraMat = null
         let hydraSphere = null
-        let hydraObj = null
+        let hydraAccumSec = 0.0
+
         try {
-          // Forzar preserveDrawingBuffer:true antes de que Hydra cree el contexto GL.
-          // Sin esto, en WebXR el compositor del Quest 2 recicla el framebuffer
-          // de Hydra antes de que nuestro drawImage lo lea → se ve blanco.
-          const _origGetCtx = hydraCanvas.getContext.bind(hydraCanvas)
-          hydraCanvas.getContext = (type, opts) =>
-            _origGetCtx(type, { ...(opts || {}), preserveDrawingBuffer: true })
-
-          hydraObj = new Hydra({
-            canvas: hydraCanvas,
-            autoLoop: false,
-            detectAudio: false
+          const hydraShader = new pc.Shader(app.graphicsDevice, {
+            attributes: {
+              aPosition: pc.SEMANTIC_POSITION,
+              aUv0: pc.SEMANTIC_TEXCOORD0
+            },
+            vshader: hydraVS,
+            fshader: hydraFS
           })
-          osc(10, 0.1, 0.5)
-            .mult(osc(10, 0.1, 0.5).rotate(Math.PI / 2))
-            .out()
 
-          hydraTexture = new pc.Texture(app.graphicsDevice, {
-            format: pc.PIXELFORMAT_RGB8,
-            mipmaps: false,
-            minFilter: pc.FILTER_LINEAR,
-            magFilter: pc.FILTER_LINEAR,
-            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
-            addressV: pc.ADDRESS_CLAMP_TO_EDGE
-          })
-          // Fuente: canvas 2D (no el canvas WebGL de Hydra directamente)
-          hydraTexture.setSource(hydraSnap)
+          hydraMat = new pc.Material()
+          hydraMat.shader = hydraShader
+          hydraMat.setParameter('uTime', 0.0)
+          hydraMat.cull = pc.CULLFACE_FRONT
+          hydraMat.update()
 
           hydraSphere = new pc.Entity('hydraSphere')
           hydraSphere.addComponent('render', { type: 'sphere' })
           hydraSphere.setLocalScale(1000, 1000, 1000)
-
-          const hydraMat = new pc.StandardMaterial()
-          hydraMat.emissiveMap = hydraTexture
-          hydraMat.emissive = pc.Color.WHITE
-          hydraMat.useLighting = false
-          hydraMat.cull = pc.CULLFACE_FRONT
-          hydraMat.update()
-
           hydraSphere.render.meshInstances[0].material = hydraMat
           app.root.addChild(hydraSphere)
         } catch (e) {
-          console.warn('Hydra no disponible:', e)
+          console.warn('Shader de fondo no disponible:', e)
         }
 
         // ── Video texture (video_noBg.webm con canal alfa) ─────────────────────
@@ -479,29 +478,15 @@
         app.start()
         video.load()
 
-        // Tiempo acumulado para Hydra: usa el dt de PlayCanvas en lugar de
-        // performance.now(), que en algunos firmwares de Quest 2 se comporta
-        // distinto dentro del loop WebXR y puede pasar valores incorrectos a tick().
-        let hydraAccumMs = 0
-        let lastHydraTick = 0
-        const HYDRA_FPS = 1000 / 30
-
         let uploadToggle = false
         app.on('update', dt => {
           if (!app.xr.active) {
             camera.setEulerAngles(pitch, yaw, 0)
           }
 
-          hydraAccumMs += dt * 1000 // dt es segundos → convertir a ms para Hydra
-
-          const now = performance.now()
-          if (hydraObj && now - lastHydraTick >= HYDRA_FPS) {
-            hydraObj.synth.tick(hydraAccumMs)
-            // Copiar GL canvas → 2D canvas (evita readback cross-context directo)
-            hydraCtx2d.drawImage(hydraCanvas, 0, 0)
-            if (hydraTexture) hydraTexture.upload()
-            lastHydraTick = now
-          }
+          // Avanzar tiempo del shader de fondo
+          hydraAccumSec += dt
+          if (hydraMat) hydraMat.setParameter('uTime', hydraAccumSec)
 
           uploadToggle = !uploadToggle
           if (uploadToggle && videoSphere.enabled && video.readyState >= 2) {

@@ -1,13 +1,19 @@
-// ── Service Worker – caché de video 360° ────────────────────────────────────
-// Versión: al bumpar CACHE_NAME el visor descarga el video nuevo y borra el anterior.
-const CACHE_NAME = 'viboras-v1'
-const VIDEO_FILE = 'test_4K.mp4'
+// ── Service Worker – caché completa ──────────────────────────────────────────
+// Para forzar re-descarga de todos los assets, bumpeá CACHE_NAME (ej: v3 → v4)
+const CACHE_NAME = 'viboras-v3'
+const VIDEO_FILE = 'video_noBg.webm'
+
+// Orígenes CDN que se cachean al primer acceso (cache-first)
+const CDN_ORIGINS = [
+  'https://cdn.jsdelivr.net',
+  'https://cdn.socket.io',
+  'https://unpkg.com'
+]
 
 // ── Lifecycle ────────────────────────────────────────────────────────────────
 self.addEventListener('install', () => self.skipWaiting())
 
 self.addEventListener('activate', event => {
-  // Borra cachés de versiones anteriores
   event.waitUntil(
     caches
       .keys()
@@ -22,13 +28,55 @@ self.addEventListener('activate', event => {
 
 // ── Fetch ────────────────────────────────────────────────────────────────────
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url)
-  if (!url.pathname.endsWith(VIDEO_FILE)) return // solo interceptamos el video
+  const { request } = event
+  const url = new URL(request.url)
 
-  event.respondWith(handleVideo(event.request))
+  // Video local: caché completa con soporte de range requests
+  if (url.pathname.endsWith(VIDEO_FILE)) {
+    event.respondWith(handleVideo(request))
+    return
+  }
+
+  // Scripts CDN: cache-first (sirve offline después del primer load)
+  if (CDN_ORIGINS.some(o => request.url.startsWith(o))) {
+    event.respondWith(cacheFirst(request))
+    return
+  }
+
+  // Navegación (index.html): network-first con fallback a caché
+  if (request.mode === 'navigate') {
+    event.respondWith(networkFirst(request))
+  }
 })
 
-// ── Caché con soporte de range requests ─────────────────────────────────────
+// ── Estrategias de caché ─────────────────────────────────────────────────────
+async function cacheFirst (request) {
+  const cache = await caches.open(CACHE_NAME)
+  const cached = await cache.match(request)
+  if (cached) return cached
+  try {
+    const response = await fetch(request)
+    if (response.ok) cache.put(request, response.clone())
+    return response
+  } catch {
+    return new Response('Offline', { status: 503 })
+  }
+}
+
+async function networkFirst (request) {
+  const cache = await caches.open(CACHE_NAME)
+  try {
+    const response = await fetch(request)
+    if (response.ok) cache.put(request, response.clone())
+    return response
+  } catch {
+    return (
+      (await cache.match(request)) || new Response('Offline', { status: 503 })
+    )
+  }
+}
+
+// ── Video con soporte de range requests ──────────────────────────────────────
 async function handleVideo (request) {
   const cache = await caches.open(CACHE_NAME)
   const cacheKey = request.url.split('?')[0]
@@ -44,23 +92,20 @@ async function handleVideo (request) {
         new Request(cacheKey, { credentials: 'same-origin' })
       )
     } catch {
-      return fetch(request) // sin red y sin caché: propagar error
+      return fetch(request)
     }
     if (!fullResponse.ok) return fullResponse
-
     await cache.put(cacheKey, fullResponse.clone())
     cached = fullResponse
   }
 
-  // Sin range request: devolvemos el archivo completo desde caché
   if (!rangeHeader) return cached.clone()
 
-  // Con range request: construimos un 206 Partial Content a partir del buffer cacheado
   const buffer = await cached.clone().arrayBuffer()
   return buildRangeResponse(
     buffer,
     rangeHeader,
-    cached.headers.get('content-type') || 'video/mp4'
+    cached.headers.get('content-type') || 'video/webm'
   )
 }
 

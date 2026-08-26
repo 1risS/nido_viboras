@@ -134,18 +134,13 @@
 
     <p id="hint">Arrastrá para mirar alrededor</p>
 
-    <video
-      id="webm-overlay"
-      src="/test_transparente.webm"
-      muted
-      playsinline
-      preload="auto"
-    ></video>
-
     <canvas id="application-canvas"></canvas>
 
     <!-- Socket.IO cliente (sync entre visores) -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+    <!-- Hydra synth -->
+    <script src="https://unpkg.com/hydra-synth/dist/hydra-synth.js"></script>
 
     <!-- PlayCanvas UMD engine -->
     <script src="https://cdn.jsdelivr.net/npm/playcanvas@2.21.4/build/playcanvas.js"></script>
@@ -162,17 +157,69 @@
         const app = new pc.Application(canvas, {
           mouse: new pc.Mouse(document.body),
           touch: new pc.TouchDevice(document.body),
-
-          graphicsDeviceOptions: {
-            alpha: true
-          }
+          graphicsDeviceOptions: { alpha: true }
         })
-
         app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW)
         app.setCanvasResolution(pc.RESOLUTION_AUTO)
         window.addEventListener('resize', () => app.resizeCanvas())
 
-        // ── Video texture ─────────────────────────────────────────────────────
+        // ── Camera ───────────────────────────────────────────────────────────
+        const camera = new pc.Entity('camera')
+        camera.addComponent('camera', {
+          clearColor: new pc.Color(0, 0, 0),
+          nearClip: 0.5,
+          farClip: 2000
+        })
+        app.root.addChild(camera)
+
+        // ── Hydra sphere (background, siempre visible) ────────────────────────
+        const hydraCanvas = document.createElement('canvas')
+        hydraCanvas.width = 512
+        hydraCanvas.height = 512
+        Object.assign(hydraCanvas.style, {
+          display: 'none',
+          position: 'absolute'
+        })
+        document.body.appendChild(hydraCanvas)
+
+        let hydraTexture = null
+        let hydraSphere = null
+        try {
+          new Hydra({ canvas: hydraCanvas, autoLoop: true, detectAudio: false })
+          solid([0, 1].smooth().fast(2))
+            .mask(voronoi(5, 0.3, 10).thresh())
+            .saturate(3)
+            .blend(src(o0), 0.99)
+            .out()
+
+          hydraTexture = new pc.Texture(app.graphicsDevice, {
+            format: pc.PIXELFORMAT_RGB8,
+            mipmaps: false,
+            minFilter: pc.FILTER_LINEAR,
+            magFilter: pc.FILTER_LINEAR,
+            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressV: pc.ADDRESS_CLAMP_TO_EDGE
+          })
+          hydraTexture.setSource(hydraCanvas)
+
+          hydraSphere = new pc.Entity('hydraSphere')
+          hydraSphere.addComponent('render', { type: 'sphere' })
+          hydraSphere.setLocalScale(1000, 1000, 1000)
+
+          const hydraMat = new pc.StandardMaterial()
+          hydraMat.emissiveMap = hydraTexture
+          hydraMat.emissive = pc.Color.WHITE
+          hydraMat.useLighting = false
+          hydraMat.cull = pc.CULLFACE_FRONT
+          hydraMat.update()
+
+          hydraSphere.render.meshInstances[0].material = hydraMat
+          app.root.addChild(hydraSphere)
+        } catch (e) {
+          console.warn('Hydra no disponible:', e)
+        }
+
+        // ── Video texture (video_noBg.webm con canal alfa) ─────────────────────
         const videoTexture = new pc.Texture(app.graphicsDevice, {
           format: pc.PIXELFORMAT_RGBA8,
           mipmaps: false,
@@ -189,7 +236,6 @@
         video.preload = 'auto'
         video.playsInline = true
         video.crossOrigin = 'anonymous'
-        // Keep tiny & hidden so mobile browsers will load it
         Object.assign(video.style, {
           display: 'block',
           width: '1px',
@@ -200,66 +246,81 @@
           top: '0',
           pointerEvents: 'none'
         })
-        video.src = '/test_4K.mp4'
+        video.src = '/video_noBg.webm'
         document.body.appendChild(video)
+
+        // ── Video sphere (primer plano transparente, sobre Hydra) ─────────────
+        const videoSphere = new pc.Entity('videoSphere')
+        videoSphere.addComponent('render', { type: 'sphere' })
+        videoSphere.setLocalScale(999, 999, 999)
+        videoSphere.setEulerAngles(0, 180, 0)
+
+        const videoMat = new pc.StandardMaterial()
+        videoMat.emissiveMap = videoTexture
+        videoMat.emissive = pc.Color.WHITE
+        videoMat.opacityMap = videoTexture
+        videoMat.opacityMapChannel = 'a'
+        videoMat.blendType = pc.BLEND_NORMAL
+        videoMat.depthWrite = false
+        videoMat.useLighting = false
+        videoMat.cull = pc.CULLFACE_FRONT
+        videoMat.emissiveMapTiling = new pc.Vec2(-1, 1)
+        videoMat.emissiveMapOffset = new pc.Vec2(1, 0)
+        videoMat.opacityMapTiling = new pc.Vec2(-1, 1)
+        videoMat.opacityMapOffset = new pc.Vec2(1, 0)
+        videoMat.update()
+
+        videoSphere.render.meshInstances[0].material = videoMat
+        videoSphere.enabled = false // oculto hasta que llegue 'go'
+        app.root.addChild(videoSphere)
 
         // ── Sync entre visores ────────────────────────────────────────────────
         const SYNC_SERVER_URL =
-          'https://things-andrea-creation-essays.trycloudflare.com' // Cambiar la url segun el del servidosr
+          ' https://earthquake-organization-prices-common.trycloudflare.com         ' // Cambiar la url segun el del servidor
 
         let syncStartAt = null
         const socket = io(SYNC_SERVER_URL, {
           timeout: 4000,
-          extraHeaders: {
-            'ngrok-skip-browser-warning': 'true'
-          }
+          extraHeaders: { 'ngrok-skip-browser-warning': 'true' }
         })
 
-        socket.on('connect', () => {
-          socket.emit('register', 'headset')
-        })
-
+        socket.on('connect', () => socket.emit('register', 'headset'))
         socket.on('connect_error', () => {
           console.warn(
             'No se pudo conectar al servidor de sync. Revisá SYNC_SERVER_URL.'
           )
         })
 
-        // reiniciar la sesion al estado inicial, para poder volver a reproducir el video
         function resetScene() {
           video.pause()
           video.currentTime = 0
-          webmOverlay.pause()
-          webmOverlay.currentTime = 0
-          webmOverlay.style.display = 'none'
-          sphere.enabled = true
+          videoSphere.enabled = false
+          if (hydraSphere) hydraSphere.enabled = true
           camera.camera.clearColor = new pc.Color(0, 0, 0)
         }
 
         // El servidor envía la hora de inicio del video
         socket.on('go', ({ startAt }) => {
           syncStartAt = startAt
+          videoSphere.enabled = true
           const delay = Math.max(0, startAt - Date.now())
-          setTimeout(() => {
-            video.play().catch(() => {})
-          }, delay)
+          setTimeout(() => video.play().catch(() => {}), delay)
         })
 
-        // Si un visor se conecta después de que ya arrancó, el servidor le manda la posición actual para ponerse al día
+        // Si un visor se conecta después de que ya arrancó, se pone al día
         socket.on('catchup', ({ startAt }) => {
           syncStartAt = startAt
+          videoSphere.enabled = true
           const expected = Math.max(0, (Date.now() - startAt) / 1000)
           video.currentTime = expected
           video.play().catch(() => {})
         })
 
-        // reiniciar la sesion a todos los visores
         socket.on('reset-ack', () => {
           resetScene()
           syncStartAt = null
         })
 
-        // Cada vez que el video avanza, se ajusta la posición si hay desincronización
         video.addEventListener('timeupdate', () => {
           if (syncStartAt === null || video.paused) return
           const expected = (Date.now() - syncStartAt) / 1000
@@ -268,7 +329,6 @@
           }
         })
 
-        // Recién cuando el video empieza a reproducirse de verdad (ya sincronizado) se oculta el overlay de carga.
         video.addEventListener('playing', () => {
           overlay.classList.add('hidden')
           setTimeout(() => hint.classList.add('hidden'), 4000)
@@ -277,7 +337,6 @@
         video.addEventListener('loadedmetadata', () => {
           videoTexture.resize(video.videoWidth, video.videoHeight)
           videoTexture.setSource(video)
-          // Mostrar botón en cuanto hay metadata – no esperar buffer completo
           overlay.querySelector('.spinner').style.display = 'none'
           document.getElementById('btn-start').style.display = 'block'
         })
@@ -287,10 +346,19 @@
           overlay.querySelector('.spinner').style.display = 'none'
         })
 
+        // ── Video terminado → passthrough del casco ───────────────────────────
+        video.addEventListener('ended', () => {
+          videoSphere.enabled = false
+          activateHelmetCameras()
+        })
+
+        function activateHelmetCameras() {
+          if (hydraSphere) hydraSphere.enabled = false
+          camera.camera.clearColor = new pc.Color(0, 0, 0, 0)
+        }
+
+        // ── Botón Comenzar → fullscreen / WebXR ──────────────────────────────
         document.getElementById('btn-start').addEventListener('click', () => {
-          /* video.play().catch(() => {})
-          overlay.classList.add('hidden')
-          setTimeout(() => hint.classList.add('hidden'), 4000) */
           overlay.querySelector('span').textContent =
             'Listo — esperando inicio...'
           overlay.querySelector('.spinner').style.display = 'block'
@@ -330,79 +398,10 @@
           }
         })
 
-        // ── Vibración durante prueba_web.mp4 ─────────────────────────────────
-        // Cues en segundos – ajustá los tiempos según la duración real del video
-        /* const VIB_CUES = [
-          { t: 3, p: [200] },
-          { t: 8, p: [300, 150, 300] },
-          { t: 14, p: [500] },
-          { t: 20, p: [200, 100, 200, 100, 400] },
-          { t: 27, p: [800] }
-        ]
-        let vibIdx = 0
-        video.addEventListener('timeupdate', () => {
-          while (
-            vibIdx < VIB_CUES.length &&
-            video.currentTime >= VIB_CUES[vibIdx].t
-          ) {
-            if (navigator.vibrate) navigator.vibrate(VIB_CUES[vibIdx].p)
-            vibIdx++
-          }
-        }) */
-
-        // ── Secuencia: video termina → webm → cámaras del casco ──────────────
-        const webmOverlay = document.getElementById('webm-overlay')
-
-        video.addEventListener('ended', () => {
-          sphere.enabled = false
-          webmOverlay.style.display = 'block'
-          webmOverlay.play().catch(() => {})
-        })
-
-        webmOverlay.addEventListener('ended', () => {
-          webmOverlay.style.display = 'none'
-          activateHelmetCameras()
-        })
-
-        // ── Passthrough ────────────────────────────────────────────────────────
-        function activateHelmetCameras() {
-          camera.camera.clearColor = new pc.Color(0, 0, 0, 0)
-        }
-
-        // ── Camera (at origin, inside the sphere) ─────────────────────────────
-        const camera = new pc.Entity('camera')
-        camera.addComponent('camera', {
-          clearColor: new pc.Color(0, 0, 0),
-          nearClip: 0.5,
-          farClip: 2000
-        })
-        app.root.addChild(camera)
-
-        // ── 360 sphere ────────────────────────────────────────────────────────
-        const sphere = new pc.Entity('sphere360')
-        sphere.addComponent('render', { type: 'sphere' })
-        sphere.setLocalScale(1000, 1000, 1000)
-        sphere.setEulerAngles(0, 180, 0) // orient the sphere so the video is right-side up
-
-        const mat = new pc.StandardMaterial()
-        mat.emissiveMap = videoTexture
-        mat.emissive = pc.Color.WHITE
-        mat.useLighting = false
-        mat.cull = pc.CULLFACE_FRONT // render inner surface
-        // Mirror U to correct the left-right flip when viewing from inside
-        mat.emissiveMapTiling = new pc.Vec2(-1, 1)
-        mat.emissiveMapOffset = new pc.Vec2(1, 0)
-        mat.update()
-
-        sphere.render.meshInstances[0].material = mat
-        app.root.addChild(sphere)
-
         // ── Look-around controls ──────────────────────────────────────────────
         let yaw = 0
         let pitch = 0
         const SENS = 0.25
-
-        // Mouse
         let dragging = false,
           lastX = 0,
           lastY = 0
@@ -424,7 +423,6 @@
           lastY = e.clientY
         })
 
-        // Touch
         let lastTX = 0,
           lastTY = 0
         canvas.addEventListener(
@@ -454,15 +452,14 @@
 
         let uploadToggle = false
         app.on('update', dt => {
-          // En WebXR el headset controla la cámara; solo aplicar rotación manual fuera de XR
           if (!app.xr.active) {
             camera.setEulerAngles(pitch, yaw, 0)
           }
-
-          // Upload textures every other tick
           uploadToggle = !uploadToggle
           if (uploadToggle) {
-            if (sphere.enabled) videoTexture.upload()
+            if (videoSphere.enabled && video.readyState >= 2)
+              videoTexture.upload()
+            if (hydraTexture) hydraTexture.upload()
           }
         })
       })()

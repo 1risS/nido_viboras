@@ -186,10 +186,11 @@
         let hydraSphere = null
         try {
           new Hydra({ canvas: hydraCanvas, autoLoop: true, detectAudio: false })
-          solid([0, 1].smooth().fast(2))
-            .mask(voronoi(5, 0.3, 10).thresh())
-            .saturate(3)
-            .blend(src(o0), 0.99)
+          osc(10, 0.1, 0.5)
+            .mult(osc(10, 0.1, 0.5).rotate(Math.PI / 2))
+            .modulate(noise(0.25))
+            //.blend(src(o0), 0.8)
+            //.modulate(src(o0), 0.1)
             .out()
 
           hydraTexture = new pc.Texture(app.graphicsDevice, {

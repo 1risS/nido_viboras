@@ -184,8 +184,13 @@
 
         let hydraTexture = null
         let hydraSphere = null
+        let hydraObj = null
         try {
-          new Hydra({ canvas: hydraCanvas, autoLoop: true, detectAudio: false })
+          hydraObj = new Hydra({
+            canvas: hydraCanvas,
+            autoLoop: false,
+            detectAudio: false
+          })
           osc(10, 0.1, 0.5)
             .mult(osc(10, 0.1, 0.5).rotate(Math.PI / 2))
             .modulate(noise(0.25))
@@ -277,7 +282,7 @@
 
         // ── Sync entre visores ────────────────────────────────────────────────
         const SYNC_SERVER_URL =
-          ' https://earthquake-organization-prices-common.trycloudflare.com         ' // Cambiar la url segun el del servidor
+          'https://earthquake-organization-prices-common.trycloudflare.com' // Cambiar la url segun el del servidor
 
         let syncStartAt = null
         const socket = io(SYNC_SERVER_URL, {
@@ -394,7 +399,10 @@
             socket.emit('ready')
           } else {
             setTimeout(() => {
-              if (video.paused) video.play().catch(() => {})
+              if (video.paused) {
+                videoSphere.enabled = true
+                video.play().catch(() => {})
+              }
             }, 1000)
           }
         })
@@ -456,6 +464,9 @@
           if (!app.xr.active) {
             camera.setEulerAngles(pitch, yaw, 0)
           }
+          // Tick manual de Hydra (evita conflicto de contextos WebGL en Quest 2)
+          if (hydraObj) hydraObj.synth.tick(performance.now())
+
           uploadToggle = !uploadToggle
           if (uploadToggle) {
             if (videoSphere.enabled && video.readyState >= 2)

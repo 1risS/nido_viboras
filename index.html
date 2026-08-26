@@ -176,11 +176,26 @@
         const hydraCanvas = document.createElement('canvas')
         hydraCanvas.width = 512
         hydraCanvas.height = 512
+        // Posicionado fuera de pantalla pero NO display:none –
+        // display:none hace que Quest 2 suspenda el contexto GL en fullscreen
         Object.assign(hydraCanvas.style, {
-          display: 'none',
-          position: 'absolute'
+          position: 'fixed',
+          top: '0',
+          left: '-2px',
+          width: '1px',
+          height: '1px',
+          opacity: '0',
+          pointerEvents: 'none',
+          zIndex: '-1'
         })
         document.body.appendChild(hydraCanvas)
+
+        // Canvas 2D intermedio: evita el readback cross-context directo
+        // (WebGL canvas → 2D canvas → PlayCanvas texture es más estable en Quest 2)
+        const hydraSnap = document.createElement('canvas')
+        hydraSnap.width = 512
+        hydraSnap.height = 512
+        const hydraCtx2d = hydraSnap.getContext('2d')
 
         let hydraTexture = null
         let hydraSphere = null
@@ -203,7 +218,8 @@
             addressU: pc.ADDRESS_CLAMP_TO_EDGE,
             addressV: pc.ADDRESS_CLAMP_TO_EDGE
           })
-          hydraTexture.setSource(hydraCanvas)
+          // Fuente: canvas 2D (no el canvas WebGL de Hydra directamente)
+          hydraTexture.setSource(hydraSnap)
 
           hydraSphere = new pc.Entity('hydraSphere')
           hydraSphere.addComponent('render', { type: 'sphere' })
@@ -456,19 +472,28 @@
         app.start()
         video.load()
 
+        // Hydra throttleado a ~30fps para reducir cambios de contexto GL en Quest 2
+        let lastHydraTick = 0
+        const HYDRA_FPS = 1000 / 30
+
         let uploadToggle = false
         app.on('update', dt => {
           if (!app.xr.active) {
             camera.setEulerAngles(pitch, yaw, 0)
           }
-          // Tick manual de Hydra (evita conflicto de contextos WebGL en Quest 2)
-          if (hydraObj) hydraObj.synth.tick(performance.now())
+
+          const now = performance.now()
+          if (hydraObj && now - lastHydraTick >= HYDRA_FPS) {
+            hydraObj.synth.tick(now)
+            // Copiar GL canvas → 2D canvas (evita readback cross-context directo)
+            hydraCtx2d.drawImage(hydraCanvas, 0, 0)
+            if (hydraTexture) hydraTexture.upload()
+            lastHydraTick = now
+          }
 
           uploadToggle = !uploadToggle
-          if (uploadToggle) {
-            if (videoSphere.enabled && video.readyState >= 2)
-              videoTexture.upload()
-            if (hydraTexture) hydraTexture.upload()
+          if (uploadToggle && videoSphere.enabled && video.readyState >= 2) {
+            videoTexture.upload()
           }
         })
       })()

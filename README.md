@@ -1,6 +1,6 @@
-# 360° Video Viewer – Moto
+# 360° Video Viewer
 
-Visor de video 360° interactivo construido con [PlayCanvas Engine](https://github.com/playcanvas/engine). Carga `moto.mp4` automáticamente al abrir el sitio y permite recorrer la escena arrastrando con mouse o dedo.
+Visor de video 360° interactivo construido con [PlayCanvas Engine](https://github.com/playcanvas/engine). Carga `video_noBg.webm` automáticamente al abrir el sitio y permite recorrer la escena arrastrando con mouse o dedo.
 
 ## Tecnología
 
@@ -45,14 +45,13 @@ Abre `http://localhost:3001` en el navegador.
 ## Estructura del proyecto
 
 ```
-nido_viboras/
+viboras/
 ├── public/
-│   ├── BAILE_1.mp4          # Video 360° equirectangular
-│   ├── rayo.gif
-│   └── test_transparente.webm
-├──sync/
-│   ├──server.js        # Servidor Express + Socket.IO
-│   └──control.html     # Panel de control para el operador
+│   ├── video_noBg.webm      # Video 360° con canal alfa
+│   └── sw.js                # Service Worker
+├── sync/
+│   ├── server.js        # Servidor Express + Socket.IO
+│   └── control.html     # Panel de control para el operador
 ├── index.html          # Visor completo (PlayCanvas + controles)
 ├── package.json
 └── README.md
@@ -61,7 +60,7 @@ nido_viboras/
 ## Cómo funciona
 
 1. **Esfera 360°** – Se crea una esfera de 1000 unidades con la cámara en el centro. La cara interna se renderiza con `CULLFACE_FRONT`.
-2. **Video como textura** – El `<video>` se mantiene oculto en el DOM; cada frame se sube a la GPU con `videoTexture.upload()`.
+2. **Video como textura** – El `<video>` se mantiene oculto en el DOM; la fuente se asigna con `videoTexture.setSource(video)`.
 3. **Corrección de espejo** – Al ver desde adentro el eje U quedaría invertido; se corrige con `emissiveMapTiling(-1, 1)` y `emissiveMapOffset(1, 0)`.
 4. **Controles** – Drag con mouse o touch modifica `yaw` y `pitch` que se aplican a la cámara con `setEulerAngles`.
 
@@ -108,11 +107,3 @@ Alternativa usada para exponer también el visor (`index.html` vía Vite, puerto
 | Swipe (móvil) | Girar la vista |
 
 ## Notas técnicas / troubleshooting
-
-- **Bitrate del video de origen:** un video con bitrate muy alto (detecté un caso de ~165 Mbps, verificable con `ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate,duration,avg_frame_rate -of default=noprint_wrappers=1 BAILE_1.mp4`) superaba el ancho de banda disponible del túnel, causando que el buffer se vacíe siempre en el mismo punto del video para todos los cascos a la vez (todos arrancan sincronizados, así que todos "chocan" contra el mismo límite de descarga al mismo tiempo). Lo resolví recomprimiendo con:
-
-  ```bash
-  ffmpeg -i BAILE_1.mp4 -c:v libx264 -preset slow -b:v 12M -maxrate 14M -bufsize 24M -c:a aac -b:a 192k BAILE_1_optimizado.mp4
-  ```
-
-  (12 Mbps es un valor de referencia razonable para 1080p; ajustar según resolución y necesidad de calidad.)

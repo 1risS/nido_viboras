@@ -400,12 +400,14 @@
           }
 
           if (navigator.xr && app.xr.isAvailable(pc.XRTYPE_AR)) {
+            app.graphicsDevice.maxPixelRatio = 1
             app.xr.start(camera.camera, pc.XRTYPE_AR, pc.XRSPACE_LOCALFLOOR, {
               callback: err => {
                 if (err) fallbackFullscreen()
               }
             })
           } else if (navigator.xr && app.xr.isAvailable(pc.XRTYPE_VR)) {
+            app.graphicsDevice.maxPixelRatio = 1
             app.xr.start(camera.camera, pc.XRTYPE_VR, pc.XRSPACE_LOCAL, {
               callback: err => {
                 if (err) fallbackFullscreen()
@@ -486,7 +488,7 @@
         let lastHydraTick = 0
         const HYDRA_FPS = 1000 / 30
 
-        let uploadToggle = false
+        let uploadToggle = 0
         app.on('update', dt => {
           if (!app.xr.active) {
             camera.setEulerAngles(pitch, yaw, 0)
@@ -503,8 +505,12 @@
             lastHydraTick = now
           }
 
-          uploadToggle = !uploadToggle
-          if (uploadToggle && videoSphere.enabled && video.readyState >= 2) {
+          uploadToggle = (uploadToggle + 1) % (app.xr.active ? 4 : 2)
+          if (
+            uploadToggle === 0 &&
+            videoSphere.enabled &&
+            video.readyState >= 2
+          ) {
             videoTexture.upload()
           }
         })
